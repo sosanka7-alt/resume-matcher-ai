@@ -52,6 +52,24 @@ export default function Index() {
     );
   };
 
+  const handleMultipleFiles = (targetId: string, files: File[]) => {
+    setResumes((prev) => {
+      const idx = prev.findIndex((r) => r.id === targetId);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      // Set the first file on the current slot
+      updated[idx] = { ...updated[idx], file: files[0], pdfError: '' };
+      // Add new slots for the rest
+      const newEntries = files.slice(1).map((f) => ({
+        id: crypto.randomUUID(),
+        file: f,
+        pdfError: '',
+      }));
+      updated.splice(idx + 1, 0, ...newEntries);
+      return updated;
+    });
+  };
+
   const validate = () => {
     let valid = true;
     const updated = resumes.map((r) => {
@@ -159,6 +177,7 @@ export default function Index() {
                 <PdfUpload
                   file={resume.file}
                   onFileChange={(f) => updateResume(resume.id, f)}
+                  onMultipleFiles={(files) => handleMultipleFiles(resume.id, files)}
                   error={resume.pdfError}
                 />
               </div>

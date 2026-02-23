@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -9,43 +9,102 @@ import { extractTextFromPDF } from '@/lib/pdf-extract';
 
 const WEBHOOK_URL = 'https://sosankaaa.app.n8n.cloud/webhook/resume-analysis';
 
+interface ResumeEntry {
+  id: string;
+  file: File | null;
+  pdfError: string;
+}
+
+interface AnalysisResult {
+  fileName: string;
+  data: {
+    Name: string;
+    "Match score": number;
+    Strengths: string[];
+    Gaps: string[];
+    Summary: string;
+    Recommendation: string;
+  };
+}
+
 export default function Index() {
-  const [file, setFile] = useState<File | null>(null);
+  const [resumes, setResumes] = useState<ResumeEntry[]>([
+    { id: crypto.randomUUID(), file: null, pdfError: '' },
+  ]);
   const [jobDescription, setJobDescription] = useState('');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any>(null);
-  const [pdfError, setPdfError] = useState('');
+  const [results, setResults] = useState<AnalysisResult[]>([]);
   const [jdError, setJdError] = useState('');
   const { toast } = useToast();
 
+  const addResume = () => {
+    setResumes((prev) => [...prev, { id: crypto.randomUUID(), file: null, pdfError: '' }]);
+  };
+
+  const removeResume = (id: string) => {
+    if (resumes.length <= 1) return;
+    setResumes((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const updateResume = (id: string, file: File | null) => {
+    setResumes((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, file, pdfError: '' } : r))
+    );
+  };
+
   const validate = () => {
     let valid = true;
-    if (!file) { setPdfError('Please upload a PDF resume.'); valid = false; } else { setPdfError(''); }
-    if (!jobDescription.trim()) { setJdError('Please enter a job description.'); valid = false; } else { setJdError(''); }
+    const updated = resumes.map((r) => {
+      if (!r.file) {
+        valid = false;
+        return { ...r, pdfError: 'Please upload a PDF resume.' };
+      }
+      return { ...r, pdfError: '' };
+    });
+    setResumes(updated);
+    if (!jobDescription.trim()) {
+      setJdError('Please enter a job description.');
+      valid = false;
+    } else {
+      setJdError('');
+    }
     return valid;
   };
 
   const handleAnalyze = async () => {
-    if (!validate() || !file) return;
+    if (!validate()) return;
     setLoading(true);
-    setResults(null);
+    setResults([]);
 
     try {
-      const resumeText = await extractTextFromPDF(file);
+      const analysisResults: AnalysisResult[] = [];
 
-      const res = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resume_text: resumeText,
-          job_description: jobDescription.trim(),
-        }),
-      });
+      for (const resume of resumes) {
+        if (!resume.file) continue;
+        const resumeText = await extractTextFromPDF(resume.file);
 
-      if (!res.ok) throw new Error(`Server error (${res.status})`);
+        const res = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resume_text: resumeText,
+            job_description: jobDescription.trim(),
+          }),
+        });
 
-      const data = await res.json();
-      setResults(data);
+        if (!res.ok) throw new Error(`Server error (${res.status})`);
+
+        const raw = await res.json();
+        // Handle both array and object responses
+        const data = Array.isArray(raw) ? raw[0] : raw;
+
+        analysisResults.push({
+          fileName: resume.file.name,
+          data,
+        });
+      }
+
+      setResults(analysisResults);
     } catch (err: any) {
       toast({
         title: 'Analysis Failed',
@@ -73,11 +132,42 @@ export default function Index() {
         {/* Input Section */}
         <section className="space-y-6">
           <div>
-            <h2 className="font-heading text-2xl font-bold text-foreground">Analyze your resume</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Upload your resume and paste the job description to get an AI-powered match analysis.</p>
+            <h2 className="font-heading text-2xl font-bold text-foreground">Analyze your resumes</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Upload one or more resumes and paste the job description to get AI-powered match analysis.
+            </p>
           </div>
 
-          <PdfUpload file={file} onFileChange={(f) => { setFile(f); setPdfError(''); }} error={pdfError} />
+          {/* Multiple Resume Uploads */}
+          <div className="space-y-4">
+            {resumes.map((resume, index) => (
+              <div key={resume.id} className="relative">
+                {resumes.length > 1 && (
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Resume {index + 1}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeResume(resume.id)}
+                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      Remove
+                    </Button>
+                  </div>
+                )}
+                <PdfUpload
+                  file={resume.file}
+                  onFileChange={(f) => updateResume(resume.id, f)}
+                  error={resume.pdfError}
+                />
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={addResume} className="w-full">
+              <Plus className="mr-1 h-4 w-4" />
+              Add Another Resume
+            </Button>
+          </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Job Description</label>
@@ -107,7 +197,23 @@ export default function Index() {
         </section>
 
         {/* Results */}
-        {results && <AnalysisResults data={results} />}
+        {results.length > 0 && (
+          <section className="space-y-6">
+            <h2 className="font-heading text-xl font-bold text-foreground">
+              Results ({results.length} resume{results.length > 1 ? 's' : ''})
+            </h2>
+            {results.map((result, i) => (
+              <div key={i}>
+                {results.length > 1 && (
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    File: {result.fileName}
+                  </p>
+                )}
+                <AnalysisResults data={result.data} />
+              </div>
+            ))}
+          </section>
+        )}
       </main>
     </div>
   );

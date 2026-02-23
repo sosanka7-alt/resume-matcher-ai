@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 interface PdfUploadProps {
   file: File | null;
   onFileChange: (file: File | null) => void;
+  onMultipleFiles?: (files: File[]) => void;
   error?: string;
 }
 
-export default function PdfUpload({ file, onFileChange, error }: PdfUploadProps) {
+export default function PdfUpload({ file, onFileChange, onMultipleFiles, error }: PdfUploadProps) {
   const [dragActive, setDragActive] = useState(false);
 
   const handleFile = useCallback((f: File) => {
@@ -22,8 +23,13 @@ export default function PdfUpload({ file, onFileChange, error }: PdfUploadProps)
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
-    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-  }, [handleFile]);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    if (files.length > 1 && onMultipleFiles) {
+      onMultipleFiles(files);
+    } else if (files.length === 1) {
+      handleFile(files[0]);
+    }
+  }, [handleFile, onMultipleFiles]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) handleFile(e.target.files[0]);
